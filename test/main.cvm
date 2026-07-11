@@ -1,0 +1,161 @@
+// =====================================================================
+// CVM OS - SKELETON (DESIGN CONCEPT)
+// Este arquivo contém todas as estruturas e conceitos necessários
+// para programar um Sistema Operacional real na linguagem CVM.
+// Muitas dessas features (structs, ponteiros, asm, interrupções) 
+// são visões do futuro para guiar a criação da linguagem!
+// =====================================================================
+
+import "memory.cvm";
+import "drivers/vga.cvm";
+import "drivers/keyboard.cvm";
+
+// ---------------------------------------------------------
+// 1. ESTRUTURAS DE DADOS E MEMÓRIA (Não implementado ainda)
+// ---------------------------------------------------------
+
+struct Process {
+    int pid;
+    int state;       // 0: Ready, 1: Running, 2: Blocked
+    *void stack_ptr; // Ponteiro para a base da pilha do processo
+    int priority;
+}
+
+struct GDTEntry {
+    int limit_low;
+    int base_low;
+    int base_middle;
+    int access;
+    int granularity;
+    int base_high;
+}
+
+// ---------------------------------------------------------
+// 2. CONSTANTES E MAPEAMENTO DE HARDWARE (Ponteiros absolutos)
+// ---------------------------------------------------------
+
+// Ponteiro direto para a memória de vídeo em modo texto (VGA)
+*int VGA_BUFFER = 0xB8000;
+
+// Constantes globais
+int MAX_PROCESSES = 256;
+Process[256] process_table;
+int current_process_id = 0;
+
+// ---------------------------------------------------------
+// 3. COMUNICAÇÃO DE BAIXO NÍVEL (Inline Assembly & Portas)
+// ---------------------------------------------------------
+
+// Função para ler uma porta de hardware (I/O)
+int inb(int port) {
+    int result = 0;
+    asm {
+        "IN {result}, {port}"
+    }
+    return result;
+}
+
+// Função para escrever numa porta de hardware (I/O)
+void outb(int port, int data) {
+    asm {
+        "OUT {port}, {data}"
+    }
+}
+
+// ---------------------------------------------------------
+// 4. TRATAMENTO DE INTERRUPÇÕES (ISRs)
+// ---------------------------------------------------------
+
+// Uma função de interrupção precisa salvar o contexto (registradores)
+// automaticamente antes de rodar e restaurar no final (IRET).
+interrupt void timer_interrupt_handler() {
+    // 1. Atualizar relógio do sistema
+    system_ticks++;
+    
+    // 2. Avisar o controlador de interrupção que a recebemos
+    outb(0x20, 0x20); // EOI (End of Interrupt) no PIC
+    
+    // 3. Chamar o Scheduler para trocar de contexto
+    schedule();
+}
+
+interrupt void keyboard_interrupt_handler() {
+    int scancode = inb(0x60); // Ler a tecla do teclado
+    process_keypress(scancode);
+    outb(0x20, 0x20); // EOI
+}
+
+// ---------------------------------------------------------
+// 5. SCHEDULER (Gerenciamento de Processos)
+// ---------------------------------------------------------
+
+void schedule() {
+    int next_process = (current_process_id + 1) % MAX_PROCESSES;
+    
+    // Procurar o próximo processo que está pronto (state == 0)
+    while (process_table[next_process].state != 0 && next_process != current_process_id) {
+        next_process = (next_process + 1) % MAX_PROCESSES;
+    }
+    
+    if (next_process != current_process_id) {
+        // Trocar de contexto via assembly
+        *void old_stack = process_table[current_process_id].stack_ptr;
+        *void new_stack = process_table[next_process].stack_ptr;
+        
+        current_process_id = next_process;
+        process_table[current_process_id].state = 1; // Running
+        
+        asm {
+            "SWITCH_CONTEXT {old_stack}, {new_stack}"
+        }
+    }
+}
+
+// ---------------------------------------------------------
+// 6. KERNEL MAIN - O PONTO DE ENTRADA DO SO
+// ---------------------------------------------------------
+
+int main() {
+    // 1. Desativar interrupções enquanto configuramos o sistema
+    asm { "CLI" }
+    
+    // 2. Inicializar subsistemas
+    init_memory_manager();
+    init_gdt();
+    init_idt(); // Configurar vetor de interrupções
+    
+    // 3. Registrar nossos Handlers de Hardware
+    register_interrupt(32, timer_interrupt_handler);
+    register_interrupt(33, keyboard_interrupt_handler);
+    
+    // 4. Limpar a tela (manipulação direta de ponteiro)
+    for (int i = 0; i < 80 * 25; i++) {
+        VGA_BUFFER[i] = 0x0720; // 0x20 = Espaço, 0x07 = Branco no Preto
+    }
+    
+    // Teste dos operadores lógicos (já implementados!)
+    bool system_ready = true;
+    if (system_ready && (MAX_PROCESSES > 0)) {
+        print!("Kernel inicializado com sucesso!");
+    }
+    
+    // 5. Criar o processo principal (Init / Idle)
+    create_process(idle_task);
+    
+    // 6. Reativar interrupções e entrar no loop infinito (Idle)
+    asm { "STI" }
+    
+    while (true) {
+        // O processador dorme até a próxima interrupção economizando energia
+        asm { "HLT" }
+    }
+    
+    return 0;
+}
+
+void idle_task() {
+    while (true) {
+        // Tarefa de menor prioridade, roda quando não há nada a fazer
+        asm { "YIELD" }
+    }
+}

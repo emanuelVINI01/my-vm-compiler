@@ -1,0 +1,70 @@
+WHITESPACE = _{ " " | "\t" | "\n" | "\r" }
+COMMENT = _{ "//" ~ (!"\n" ~ ANY)* }
+
+program = { SOI ~ (import_stmt | statement)* ~ EOI }
+
+statement = {
+    array_decl
+  | var_decl
+  | array_assign
+  | assign
+  | increment_stmt
+  | return_stmt
+  | if_stmt
+  | while_stmt
+  | for_stmt
+  | function
+  | func_call
+  | macro_call
+}
+
+// Data Types
+type_decl = { "int" | "float" | "string" | "bool" | "void" }
+
+// Variables & Identifiers
+ident = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
+float_num = @{ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ }
+int_num = @{ ASCII_DIGIT+ }
+string_lit = ${ "\"" ~ inner_string ~ "\"" }
+inner_string = @{ (!"\"" ~ ANY)* }
+
+array_access = { ident ~ "[" ~ expr ~ "]" }
+
+// Expressions
+primary = _{ func_call_expr | string_lit | float_num | int_num | array_access | ident | "(" ~ expr ~ ")" }
+func_call_expr = { ident ~ "(" ~ expr_list? ~ ")" }
+binary_expr = { primary ~ (operator ~ primary)+ }
+operator = { "+" | "-" | "*" | "/" | "%" | "^" | "==" | "!=" | "<=" | ">=" | "<" | ">" | "&&" | "||" }
+expr = { binary_expr | primary }
+
+// Imports
+import_stmt = { "import" ~ string_lit ~ ";" }
+
+// Statements
+array_decl = { type_decl ~ ident ~ "[" ~ int_num ~ "]" ~ ";" }
+
+var_decl_expr = { type_decl ~ ident ~ "=" ~ expr }
+var_decl = { var_decl_expr ~ ";" }
+
+array_assign = { array_access ~ "=" ~ expr ~ ";" }
+
+assign_expr = { ident ~ "=" ~ expr }
+assign = { assign_expr ~ ";" }
+
+increment = { ident ~ ("++" | "--") }
+increment_stmt = { increment ~ ";" }
+return_stmt = { "return" ~ expr? ~ ";" }
+
+if_stmt = { "if" ~ "(" ~ expr ~ ")" ~ block ~ ("else" ~ block)? }
+while_stmt = { "while" ~ "(" ~ expr ~ ")" ~ block }
+for_stmt = { "for" ~ "(" ~ (var_decl | assign | ";") ~ expr ~ ";" ~ (assign_expr | increment)? ~ ")" ~ block }
+
+block = { "{" ~ statement* ~ "}" }
+
+param_list = { type_decl ~ ident ~ ("," ~ type_decl ~ ident)* }
+function = { type_decl ~ ident ~ "(" ~ param_list? ~ ")" ~ block }
+
+func_call = { func_call_expr ~ ";" }
+
+macro_call = { ident ~ "!" ~ "(" ~ expr_list? ~ ")" ~ ";" }
+expr_list = { expr ~ ("," ~ expr)* }
