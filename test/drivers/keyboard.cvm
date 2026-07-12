@@ -1,0 +1,3 @@
+void process_keypress(int scancode) {}
+void register_interrupt(int num, int handler) {}
+void create_process(int func) {}

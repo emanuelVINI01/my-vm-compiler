@@ -99,14 +99,18 @@ void schedule() {
     
     if (next_process != current_process_id) {
         // Trocar de contexto via assembly
-        *void old_stack = process_table[current_process_id].stack_ptr;
-        *void new_stack = process_table[next_process].stack_ptr;
+        *void old_stack = 0;
+        asm {
+            "GETSP {old_stack}"
+        }
+        process_table[current_process_id].stack_ptr = old_stack;
         
         current_process_id = next_process;
         process_table[current_process_id].state = 1; // Running
         
+        *void new_stack = process_table[next_process].stack_ptr;
         asm {
-            "SWITCH_CONTEXT {old_stack}, {new_stack}"
+            "SETSP {new_stack}"
         }
     }
 }
@@ -136,7 +140,7 @@ int main() {
     // Teste dos operadores lógicos (já implementados!)
     bool system_ready = true;
     if (system_ready && (MAX_PROCESSES > 0)) {
-        print!("Kernel inicializado com sucesso!");
+        // print!("Kernel inicializado com sucesso!");
     }
     
     // 5. Criar o processo principal (Init / Idle)

@@ -8,6 +8,8 @@ pub enum Type {
     Bool,
     Void,
     Array(Box<Type>),
+    Pointer(Box<Type>),
+    Struct(String),
 }
 
 #[derive(Clone)]
@@ -18,10 +20,21 @@ pub struct VariableInfo {
 
 pub struct CompilationContext {
     pub variables: HashMap<String, VariableInfo>,
+    pub global_variables: HashMap<String, VariableInfo>,
     pub label_counter: usize,
     pub loop_stack: Vec<(String, String)>,
     pub next_register: usize,
+    pub next_global_register: usize,
     pub registers: Vec<String>,
+    pub free_registers: Vec<usize>,
+    pub structs: HashMap<String, StructInfo>,
+    pub heap_ptr: u32,
+}
+
+#[derive(Clone, Debug)]
+pub struct StructInfo {
+    pub fields: Vec<(String, Type)>,
+    pub offsets: HashMap<String, usize>,
 }
 
 impl CompilationContext {
@@ -33,10 +46,15 @@ impl CompilationContext {
 
         CompilationContext {
             variables: HashMap::new(),
+            global_variables: HashMap::new(),
             label_counter: 0,
             loop_stack: Vec::new(),
-            next_register: 0, // 'A'
+            next_register: 0,
+            next_global_register: 0,
             registers,
+            free_registers: Vec::new(),
+            structs: HashMap::new(),
+            heap_ptr: 1024,
         }
     }
 
@@ -45,57 +63,72 @@ impl CompilationContext {
             return info.reg.clone();
         }
         
-        let reg = self.next_free_register();
+        let reg = self.next_virtual_register();
         self.variables.insert(var_name.to_string(), VariableInfo {
             reg: reg.clone(),
             var_type,
         });
         reg
     }
+    
+    pub fn allocate_global_register(&mut self, var_name: &str, var_type: Type) -> String {
+        let reg = format!("g{}", self.next_global_register);
+        self.next_global_register += 1;
+        self.global_variables.insert(var_name.to_string(), VariableInfo {
+            reg: reg.clone(),
+            var_type,
+        });
+        reg
+    }
 
-    pub fn free_register(&mut self, var_name: &str) {
-        if let Some(info) = self.variables.remove(var_name) {
-            // Find index of this reg
-            if let Some(pos) = self.registers.iter().position(|x| x == &info.reg) {
-                // If this was the last allocated register, we can walk back next_register
-                // (Very simplistic register allocation, but works for our linear case)
-                if pos + 1 == self.next_register {
-                    self.next_register -= 1;
-                }
-            }
-        }
+    pub fn free_register(&mut self, _var_name: &str) {
+        // No IR, a gente não reutiliza registradores virtuais tão cedo, 
+        // e o alocador futuro cuidará disso, então `free_register` vira um no-op.
     }
 
     pub fn get_register(&self, var_name: &str) -> String {
-        self.variables.get(var_name)
-            .expect(&format!("Variável '{}' não foi declarada!", var_name))
-            .reg.clone()
+        if let Some(info) = self.variables.get(var_name) {
+            return info.reg.clone();
+        }
+        if let Some(info) = self.global_variables.get(var_name) {
+            return info.reg.clone();
+        }
+        panic!("Variável '{}' não foi declarada!", var_name);
     }
     
     pub fn get_type(&self, var_name: &str) -> Type {
-        if var_name.starts_with("_tmp") {
-            return Type::Int; // simplificação
+        if var_name.starts_with("v_") {
+            return Type::Int; // tmp regs
         }
-        self.variables.get(var_name)
-            .expect(&format!("Variável '{}' não foi declarada!", var_name))
-            .var_type.clone()
+        if let Some(info) = self.variables.get(var_name) {
+            return info.var_type.clone();
+        }
+        if let Some(info) = self.global_variables.get(var_name) {
+            return info.var_type.clone();
+        }
+        panic!("Variável '{}' não foi declarada!", var_name);
     }
     
     pub fn get_active_registers(&self) -> Vec<String> {
-        self.registers[0..self.next_register].to_vec()
+        let mut all = Vec::new();
+        for (_, info) in &self.global_variables {
+            all.push(info.reg.clone());
+        }
+        for (_, info) in &self.variables {
+            all.push(info.reg.clone());
+        }
+        all.sort();
+        all.dedup();
+        all
     }
     
     pub fn reset_for_function(&mut self) {
         self.variables.clear();
-        self.next_register = 0;
+        // Não resetamos next_register pq os Virtuais devem ser unicos globais (opcional)
     }
 
-    fn next_free_register(&mut self) -> String {
-        // Reserve 'Y' for scratch, 'Z' for return
-        if self.next_register >= 24 {
-            panic!("Erro: Faltam registradores livres (Max 24)");
-        }
-        let reg = self.registers[self.next_register].clone();
+    fn next_virtual_register(&mut self) -> String {
+        let reg = format!("v{}", self.next_register);
         self.next_register += 1;
         reg
     }

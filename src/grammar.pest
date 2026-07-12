@@ -4,10 +4,13 @@ COMMENT = _{ "//" ~ (!"\n" ~ ANY)* }
 program = { SOI ~ (import_stmt | statement)* ~ EOI }
 
 statement = {
-    array_decl
+    struct_decl
+  | array_decl
   | var_decl
   | array_assign
   | assign
+  | pointer_assign
+  | field_assign
   | increment_stmt
   | return_stmt
   | if_stmt
@@ -16,22 +19,37 @@ statement = {
   | function
   | func_call
   | macro_call
+  | asm_block
 }
 
+struct_decl = { "struct" ~ ident ~ "{" ~ struct_field* ~ "}" }
+struct_field = { type_decl ~ ident ~ ";" }
+
+asm_block = { "asm" ~ "{" ~ string_lit ~ "}" }
+
+field_assign = { field_access ~ "=" ~ expr ~ ";" }
+
+pointer_assign = { deref_expr ~ "=" ~ expr ~ ";" }
+
 // Data Types
-type_decl = { "int" | "float" | "string" | "bool" | "void" }
+type_decl = { pointer_type | base_type }
+pointer_type = { "*" ~ type_decl }
+base_type = { "int" | "float" | "string" | "bool" | "void" | ident }
 
 // Variables & Identifiers
 ident = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
 float_num = @{ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ }
+hex_num = @{ "0x" ~ ASCII_HEX_DIGIT+ }
 int_num = @{ ASCII_DIGIT+ }
 string_lit = ${ "\"" ~ inner_string ~ "\"" }
 inner_string = @{ (!"\"" ~ ANY)* }
 
 array_access = { ident ~ "[" ~ expr ~ "]" }
+deref_expr = { "*" ~ ident }
+field_access = { array_access ~ "." ~ ident | ident ~ "." ~ ident }
 
 // Expressions
-primary = _{ func_call_expr | string_lit | float_num | int_num | array_access | ident | "(" ~ expr ~ ")" }
+primary = _{ func_call_expr | hex_num | string_lit | float_num | int_num | field_access | array_access | deref_expr | ident | "(" ~ expr ~ ")" }
 func_call_expr = { ident ~ "(" ~ expr_list? ~ ")" }
 binary_expr = { primary ~ (operator ~ primary)+ }
 operator = { "+" | "-" | "*" | "/" | "%" | "^" | "==" | "!=" | "<=" | ">=" | "<" | ">" | "&&" | "||" }
@@ -41,7 +59,7 @@ expr = { binary_expr | primary }
 import_stmt = { "import" ~ string_lit ~ ";" }
 
 // Statements
-array_decl = { type_decl ~ ident ~ "[" ~ int_num ~ "]" ~ ";" }
+array_decl = { ident ~ "[" ~ int_num ~ "]" ~ ident ~ ";" }
 
 var_decl_expr = { type_decl ~ ident ~ "=" ~ expr }
 var_decl = { var_decl_expr ~ ";" }
@@ -62,7 +80,8 @@ for_stmt = { "for" ~ "(" ~ (var_decl | assign | ";") ~ expr ~ ";" ~ (assign_expr
 block = { "{" ~ statement* ~ "}" }
 
 param_list = { type_decl ~ ident ~ ("," ~ type_decl ~ ident)* }
-function = { type_decl ~ ident ~ "(" ~ param_list? ~ ")" ~ block }
+interrupt_mod = { "interrupt" }
+function = { interrupt_mod? ~ type_decl ~ ident ~ "(" ~ param_list? ~ ")" ~ block }
 
 func_call = { func_call_expr ~ ";" }
 

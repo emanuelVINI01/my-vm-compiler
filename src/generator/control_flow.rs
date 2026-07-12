@@ -24,6 +24,10 @@ impl CodeGenerator {
         self.emit("JNE", &[&left, "0", &label_true]);
         self.emit("JMP", &[&label_false]);
 
+        if left.starts_with("_tmp") {
+            self.ctx.free_register(&left);
+        }
+
         self.emit_label(&label_true);
         self.visit_block(block_true);
         self.emit("JMP", &[&label_end]);
@@ -51,6 +55,10 @@ impl CodeGenerator {
         self.emit("JNE", &[&left, "0", &label_body]);
         self.emit("JMP", &[&label_end]);
 
+        if left.starts_with("_tmp") {
+            self.ctx.free_register(&left);
+        }
+
         self.emit_label(&label_body);
         self.ctx.push_loop(label_start.clone(), label_end.clone());
         self.visit_block(block);
@@ -65,7 +73,6 @@ impl CodeGenerator {
         
         let mut next_pair = inner.next().unwrap();
         
-        // Initialization
         if next_pair.as_rule() == Rule::var_decl {
             self.visit_var_decl(next_pair);
             next_pair = inner.next().unwrap();
@@ -74,12 +81,10 @@ impl CodeGenerator {
             next_pair = inner.next().unwrap();
         }
         
-        // Now next_pair is expr (condition)
         let cond_expr = next_pair;
         
         next_pair = inner.next().unwrap();
         
-        // Next could be assign_expr, increment, or block
         let mut step_pair = None;
         let block_pair;
         
@@ -90,7 +95,6 @@ impl CodeGenerator {
             block_pair = inner.next().unwrap();
         }
         
-        // Generate loop
         let label_start = self.ctx.new_label("for_start");
         let label_body = self.ctx.new_label("for_body");
         let label_end = self.ctx.new_label("for_end");
@@ -101,12 +105,15 @@ impl CodeGenerator {
         self.emit("JNE", &[&left, "0", &label_body]);
         self.emit("JMP", &[&label_end]);
 
+        if left.starts_with("_tmp") {
+            self.ctx.free_register(&left);
+        }
+
         self.emit_label(&label_body);
         self.ctx.push_loop(label_start.clone(), label_end.clone());
         self.visit_block(block_pair);
         self.ctx.pop_loop();
         
-        // Step
         if let Some(step) = step_pair {
             if step.as_rule() == Rule::assign_expr {
                 self.visit_assign_expr(step);

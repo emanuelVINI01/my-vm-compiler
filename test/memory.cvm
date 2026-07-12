@@ -1,0 +1,2 @@
+int system_ticks = 0;
+void init_memory_manager() {}
