@@ -61,6 +61,12 @@ pub enum IROp {
     // LoadPhys(phys_reg: String, vreg: String)
     LoadPhys(String, String),
 
+    // Escreve de volta um registrador físico usado em inline asm para o
+    // armazenamento real (stack ou global) da variável CVM (para opcodes de saída
+    // como GETMOUSEX, IN, etc.)
+    // StorePhys(dest_vreg_ou_greg: String, phys_reg: String)
+    StorePhys(String, String),
+
     // Carrega o endereço (índice de instrução) de uma função/label num registrador virtual
     // FuncAddr(dest_vreg, func_name)
     FuncAddr(String, String),

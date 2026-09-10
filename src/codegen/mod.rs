@@ -244,6 +244,10 @@ fn process_op(op: &IROp, alloc: &mut StackAllocator, out: &mut Vec<String>, is_i
                 out.push(format!("SET {}, {};", phys, src));
             }
         }
+        IROp::StorePhys(dest, phys) => {
+            // Escreve o registrador físico de volta na variável real (stack/global)
+            alloc.store_result(dest, phys, out);
+        }
         _ => panic!("IROp não implementado no CodeGen {:?}", op),
     }
 }

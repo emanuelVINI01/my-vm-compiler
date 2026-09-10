@@ -34,13 +34,19 @@ impl CodeGenerator {
         // Evitamos W, X, Y, Z, V, U, T, S que são usados pelo codegen internamente
         let phys_regs = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N"];
         let mut var_to_phys: Vec<(String, String)> = Vec::new();
+        // Registrador original (vX/gX) de cada variável mapeada para um físico, para
+        // escrever de volta depois do asm - necessário para opcodes que retornam um
+        // valor num operando (GETMOUSEX, GETMOUSEY, GETMOUSEBTN, IN, ...): sem isso o
+        // valor lido fica preso no registrador físico temporário e a variável CVM
+        // original nunca é atualizada.
+        let mut writeback: Vec<(String, String)> = Vec::new();
         let mut phys_idx = 0;
 
         // Para cada variável, emite load para registrador físico se for virtual (vX ou gX)
         for var_name in &var_names {
             let info_local = self.ctx.variables.get(var_name).cloned();
             let info_global = self.ctx.global_variables.get(var_name).cloned();
-            
+
             let reg = if let Some(info) = &info_local {
                 info.reg.clone()
             } else if let Some(info) = &info_global {
@@ -49,7 +55,7 @@ impl CodeGenerator {
                 // Não é variável conhecida, deixa sem substituição
                 continue;
             };
-            
+
             if reg.starts_with('v') {
                 // Registrador local virtual (stack-based) - emite LoadPhys(A, v5) etc.
                 // O codegen vai converter isso em: SET Z offset; SET V Y; SUB V Z; LOAD W V; SET A W
@@ -57,7 +63,8 @@ impl CodeGenerator {
                     let phys = phys_regs[phys_idx].to_string();
                     phys_idx += 1;
                     self.current_instructions.push(crate::ir::IROp::LoadPhys(phys.clone(), reg.clone()));
-                    var_to_phys.push((var_name.clone(), phys));
+                    var_to_phys.push((var_name.clone(), phys.clone()));
+                    writeback.push((reg, phys));
                 }
             } else if reg.starts_with('g') {
                 // Global - emite LOAD do endereço global via RawLine
@@ -71,7 +78,8 @@ impl CodeGenerator {
                     self.current_instructions.push(crate::ir::IROp::RawLine(
                         format!("LOAD {}, Z;", phys)
                     ));
-                    var_to_phys.push((var_name.clone(), phys));
+                    var_to_phys.push((var_name.clone(), phys.clone()));
+                    writeback.push((reg, phys));
                 }
             } else {
                 // Já é um registrador físico ou literal numérico
@@ -96,6 +104,14 @@ impl CodeGenerator {
                     self.emit_raw(trimmed);
                 }
             }
+        }
+
+        // Escreve de volta cada registrador físico na variável CVM original. Para
+        // entradas puras (o valor não mudou) isso é um no-op inofensivo; para saídas
+        // (GETMOUSEX, IN, etc.) é o que propaga o valor lido pela VM de volta pra
+        // variável.
+        for (reg, phys) in &writeback {
+            self.current_instructions.push(crate::ir::IROp::StorePhys(reg.clone(), phys.clone()));
         }
     }
 
