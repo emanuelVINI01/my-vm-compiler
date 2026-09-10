@@ -57,6 +57,10 @@ impl StackAllocator {
             let num: u32 = vreg[1..].parse().unwrap();
             out.push(format!("SET Z {};", num));
             out.push(format!("STORE Z {};", scratch_reg));
+        } else {
+            if vreg != scratch_reg {
+                out.push(format!("SET {} {};", vreg, scratch_reg));
+            }
         }
     }
 }
@@ -169,11 +173,13 @@ fn process_op(op: &IROp, alloc: &mut StackAllocator, out: &mut Vec<String>, is_i
             alloc.store_result(dest, "W", out);
         }
         IROp::Jmp(label) => out.push(format!("JMP {};", label)),
-        IROp::Jeq(l, r, label) | IROp::Jne(l, r, label) | IROp::Jlt(l, r, label) | IROp::Jgt(l, r, label) => {
+        IROp::Jeq(l, r, label) | IROp::Jne(l, r, label) | IROp::Jlt(l, r, label) | IROp::Jgt(l, r, label) |
+        IROp::Jle(l, r, label) | IROp::Jge(l, r, label) => {
             let p_l = alloc.load_operand(l, "W", out);
             let p_r = alloc.load_operand(r, "X", out);
             let opcode = match op {
                 IROp::Jeq(..) => "JEQ", IROp::Jne(..) => "JNE", IROp::Jlt(..) => "JLT", IROp::Jgt(..) => "JGT",
+                IROp::Jle(..) => "JLE", IROp::Jge(..) => "JGE",
                 _ => unreachable!()
             };
             out.push(format!("{} {} {} {};", opcode, p_l, p_r, label));
@@ -225,6 +231,19 @@ fn process_op(op: &IROp, alloc: &mut StackAllocator, out: &mut Vec<String>, is_i
         IROp::Sti => out.push("STI;".to_string()),
         IROp::Yield => out.push("YIELD;".to_string()),
         IROp::Label(l) => out.push(format!("{}: ;", l)),
+        IROp::RawLine(line) => out.push(line.clone()),
+        IROp::FuncAddr(dest, func_name) => {
+            out.push(format!("LABELADDR W, {};", func_name));
+            alloc.store_result(dest, "W", out);
+        }
+        IROp::LoadPhys(phys, vreg) => {
+            // Carrega registrador virtual (stack-based) para registrador físico A-N
+            // Usa o mesmo método que load_operand mas com destino específico
+            let src = alloc.load_operand(vreg, "W", out);
+            if src != *phys {
+                out.push(format!("SET {}, {};", phys, src));
+            }
+        }
         _ => panic!("IROp não implementado no CodeGen {:?}", op),
     }
 }

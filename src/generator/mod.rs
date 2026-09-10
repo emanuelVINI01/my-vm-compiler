@@ -53,6 +53,8 @@ impl CodeGenerator {
             "JNE" => IROp::Jne(args[0].to_string(), args[1].to_string(), args[2].to_string()),
             "JLT" => IROp::Jlt(args[0].to_string(), args[1].to_string(), args[2].to_string()),
             "JGT" => IROp::Jgt(args[0].to_string(), args[1].to_string(), args[2].to_string()),
+            "JLE" => IROp::Jle(args[0].to_string(), args[1].to_string(), args[2].to_string()),
+            "JGE" => IROp::Jge(args[0].to_string(), args[1].to_string(), args[2].to_string()),
             
             "CALL" => IROp::Call(args[0].to_string()),
             "RET" => IROp::Ret,
@@ -76,30 +78,32 @@ impl CodeGenerator {
     }
 
     pub fn emit_raw(&mut self, line: &str) {
-        // Raw emits (used only in inline assembly mostly)
-        // We will just map it loosely for now
-        let parts: Vec<&str> = line.trim().trim_end_matches(';').split_whitespace().collect();
+        // Raw emits (used in inline assembly)
+        let trimmed = line.trim().trim_end_matches(';');
+        let parts: Vec<&str> = trimmed.split_whitespace().collect();
         if parts.is_empty() { return; }
         
         let opcode = parts[0];
         let mut args = Vec::new();
         let joined = parts[1..].join("");
         for arg in joined.split(',') {
-            args.push(arg.trim());
+            let a = arg.trim();
+            if !a.is_empty() { args.push(a); }
         }
         
-        if opcode == "IN" || opcode == "OUT" || opcode == "GETSP" || opcode == "SETSP" {
-            self.emit(opcode, &args);
-        } else if opcode == "CLI" {
-            self.emit("CLI", &[]);
-        } else if opcode == "STI" {
-            self.emit("STI", &[]);
-        } else if opcode == "YIELD" {
-            self.emit("YIELD", &[]);
-        } else if opcode == "HLT" {
-            self.emit("HALT", &[]);
-        } else {
-            panic!("Assembly inline não suportado na transição para IR: {}", line);
+        match opcode {
+            "IN" => self.emit("IN", &args),
+            "OUT" => self.emit("OUT", &args),
+            "GETSP" => self.emit("GETSP", &args),
+            "SETSP" => self.emit("SETSP", &args),
+            "CLI" => self.emit("CLI", &[]),
+            "STI" => self.emit("STI", &[]),
+            "YIELD" => self.emit("YIELD", &[]),
+            "HLT" | "HALT" => self.emit("HALT", &[]),
+            // Todos os outros opcodes (incluindo novos GUI) são emitidos como RawLine
+            _ => {
+                self.current_instructions.push(crate::ir::IROp::RawLine(format!("{};" , trimmed)));
+            }
         }
     }
 

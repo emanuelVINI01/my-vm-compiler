@@ -28,6 +28,8 @@ pub enum IROp {
     Jne(String, String, String),
     Jlt(String, String, String),
     Jgt(String, String, String),
+    Jle(String, String, String),
+    Jge(String, String, String),
     Call(String),
     Ret,
     Halt,
@@ -51,6 +53,17 @@ pub enum IROp {
     
     // Labels
     Label(String),
+    
+    // Raw assembly line emitida diretamente (para novos opcodes GUI, etc.)
+    RawLine(String),
+    
+    // Carrega registrador virtual para registrador físico específico (para inline asm)
+    // LoadPhys(phys_reg: String, vreg: String)
+    LoadPhys(String, String),
+
+    // Carrega o endereço (índice de instrução) de uma função/label num registrador virtual
+    // FuncAddr(dest_vreg, func_name)
+    FuncAddr(String, String),
 }
 
 #[derive(Clone)]

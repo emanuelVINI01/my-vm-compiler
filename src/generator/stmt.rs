@@ -5,47 +5,100 @@ use crate::context::Type;
 use crate::context::StructInfo;
 use std::collections::HashMap;
 
-fn interpolate_asm(template: &str, ctx: &crate::context::CompilationContext) -> String {
-    let mut result = String::with_capacity(template.len());
-    let chars: Vec<char> = template.chars().collect();
-    let mut i = 0;
-    while i < chars.len() {
-        if chars[i] == '{' {
-            let start = i + 1;
-            if let Some(end) = chars[start..].iter().position(|&c| c == '}') {
-                let var_name: String = chars[start..start + end].iter().collect();
-                if let Some(info) = ctx.variables.get(&var_name) {
-                    result.push_str(&info.reg);
-                } else {
-                    result.push('{');
-                    result.push_str(&var_name);
-                    result.push('}');
-                }
-                i = start + end + 1;
-                continue;
-            }
-        }
-        result.push(chars[i]);
-        i += 1;
-    }
-    result
-}
-
 impl CodeGenerator {
     pub fn visit_asm_block(&mut self, pair: Pair<Rule>) {
         let mut inner = pair.into_inner();
         let string_lit = inner.next().unwrap();
         let asm_text = string_lit.into_inner().next().unwrap().as_str().to_string();
 
-        let interpolated = interpolate_asm(&asm_text, &self.ctx);
+        // Detecta todas as variáveis referenciadas no template asm
+        let chars: Vec<char> = asm_text.chars().collect();
+        let mut i = 0;
+        let mut var_names: Vec<String> = Vec::new();
+        while i < chars.len() {
+            if chars[i] == '{' {
+                let start = i + 1;
+                if let Some(end) = chars[start..].iter().position(|&c| c == '}') {
+                    let var_name: String = chars[start..start + end].iter().collect();
+                    if !var_names.contains(&var_name) {
+                        var_names.push(var_name);
+                    }
+                    i = start + end + 1;
+                    continue;
+                }
+            }
+            i += 1;
+        }
 
-        for line in interpolated.lines() {
+        // Registradores físicos disponíveis para uso temporário no asm (A..N são "seguros")
+        // Evitamos W, X, Y, Z, V, U, T, S que são usados pelo codegen internamente
+        let phys_regs = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N"];
+        let mut var_to_phys: Vec<(String, String)> = Vec::new();
+        let mut phys_idx = 0;
+
+        // Para cada variável, emite load para registrador físico se for virtual (vX ou gX)
+        for var_name in &var_names {
+            let info_local = self.ctx.variables.get(var_name).cloned();
+            let info_global = self.ctx.global_variables.get(var_name).cloned();
+            
+            let reg = if let Some(info) = &info_local {
+                info.reg.clone()
+            } else if let Some(info) = &info_global {
+                info.reg.clone()
+            } else {
+                // Não é variável conhecida, deixa sem substituição
+                continue;
+            };
+            
+            if reg.starts_with('v') {
+                // Registrador local virtual (stack-based) - emite LoadPhys(A, v5) etc.
+                // O codegen vai converter isso em: SET Z offset; SET V Y; SUB V Z; LOAD W V; SET A W
+                if phys_idx < phys_regs.len() {
+                    let phys = phys_regs[phys_idx].to_string();
+                    phys_idx += 1;
+                    self.current_instructions.push(crate::ir::IROp::LoadPhys(phys.clone(), reg.clone()));
+                    var_to_phys.push((var_name.clone(), phys));
+                }
+            } else if reg.starts_with('g') {
+                // Global - emite LOAD do endereço global via RawLine
+                if phys_idx < phys_regs.len() {
+                    let phys = phys_regs[phys_idx].to_string();
+                    phys_idx += 1;
+                    let num: u32 = reg[1..].parse().unwrap_or(0);
+                    self.current_instructions.push(crate::ir::IROp::RawLine(
+                        format!("SET Z {};", num)
+                    ));
+                    self.current_instructions.push(crate::ir::IROp::RawLine(
+                        format!("LOAD {}, Z;", phys)
+                    ));
+                    var_to_phys.push((var_name.clone(), phys));
+                }
+            } else {
+                // Já é um registrador físico ou literal numérico
+                var_to_phys.push((var_name.clone(), reg));
+            }
+        }
+
+        // Substitui as variáveis no template com os destinos resolvidos
+        let mut result = asm_text.clone();
+        for (var_name, phys) in &var_to_phys {
+            result = result.replace(&format!("{{{}}}", var_name), phys);
+        }
+
+        // Emite o asm resultado como RawLine(s)
+        for line in result.lines() {
             let trimmed = line.trim();
             if !trimmed.is_empty() {
-                self.emit_raw(trimmed);
+                // Normaliza a instrução
+                if !trimmed.ends_with(';') {
+                    self.emit_raw(&format!("{};", trimmed));
+                } else {
+                    self.emit_raw(trimmed);
+                }
             }
         }
     }
+
     pub fn visit_struct_decl(&mut self, pair: Pair<Rule>) {
         let mut inner = pair.into_inner();
         let struct_name = inner.next().unwrap().as_str().to_string();

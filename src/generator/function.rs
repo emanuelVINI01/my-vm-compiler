@@ -46,14 +46,19 @@ impl CodeGenerator {
         self.ctx.reset_for_function();
         
         if name != "main" && !param_names.is_empty() {
-            self.emit("POP", &["Z"]);
-            
+            let mut arg_offset = 2;
             for (p_name, p_type) in param_names.iter().rev() {
                 let reg = self.ctx.allocate_register(p_name, p_type.clone());
-                self.emit("POP", &[&reg]);
+                
+                self.current_instructions.push(crate::ir::IROp::RawLine(format!("SET Z {};", arg_offset)));
+                self.current_instructions.push(crate::ir::IROp::RawLine("SET V Y;".to_string()));
+                self.current_instructions.push(crate::ir::IROp::RawLine("ADD V Z;".to_string()));
+                self.current_instructions.push(crate::ir::IROp::RawLine("LOAD W V;".to_string()));
+                
+                self.emit("SET", &[&reg, "W"]);
+                
+                arg_offset += 1;
             }
-            
-            self.emit("PUSH", &["Z"]);
         }
         
         self.visit_block(next_pair);
@@ -98,8 +103,15 @@ impl CodeGenerator {
         }
         
         self.emit("CALL", &[name]);
+        
+        let num_args = arg_vals.len();
+        if num_args > 0 {
+            self.current_instructions.push(crate::ir::IROp::RawLine("GETSP W;".to_string()));
+            self.current_instructions.push(crate::ir::IROp::RawLine(format!("SET Z {};", num_args)));
+            self.current_instructions.push(crate::ir::IROp::RawLine("ADD W Z;".to_string()));
+            self.current_instructions.push(crate::ir::IROp::RawLine("SETSP W;".to_string()));
+        }
     }
-    
     pub fn visit_func_call_expr(&mut self, pair: Pair<Rule>) -> (String, Type) {
         let mut inner = pair.into_inner();
         let name = inner.next().unwrap().as_str();
@@ -120,12 +132,19 @@ impl CodeGenerator {
         }
         
         self.emit("CALL", &[name]);
+        
+        let num_args = arg_vals.len();
+        if num_args > 0 {
+            self.current_instructions.push(crate::ir::IROp::RawLine("GETSP W;".to_string()));
+            self.current_instructions.push(crate::ir::IROp::RawLine(format!("SET Z {};", num_args)));
+            self.current_instructions.push(crate::ir::IROp::RawLine("ADD W Z;".to_string()));
+            self.current_instructions.push(crate::ir::IROp::RawLine("SETSP W;".to_string()));
+        }
 
         let res_reg = self.ctx.allocate_register(&format!("_tmp_{}", self.ctx.label_counter), Type::Int);
         self.ctx.label_counter += 1;
         
-        self.emit("SET", &[&res_reg, "0"]);
-        self.emit("ADD", &[&res_reg, "Z"]);
+        self.emit("SET", &[&res_reg, "Z"]);
         
         (res_reg, Type::Int)
     }

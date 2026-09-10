@@ -50,8 +50,7 @@ impl CodeGenerator {
                     let tmp = self.ctx.allocate_register(
                         &format!("_tmp_{}", self.ctx.label_counter), Type::Int);
                     self.ctx.label_counter += 1;
-                    self.emit("SET", &[&tmp, "0"]);
-                    eprintln!("Aviso: referência de função '{}' usada como valor", name);
+                    self.current_instructions.push(crate::ir::IROp::FuncAddr(tmp.clone(), name.to_string()));
                     (tmp, Type::Int)
                 } else if self.ctx.variables.contains_key(name) || self.ctx.global_variables.contains_key(name) {
                     let reg = self.ctx.get_register(name);
